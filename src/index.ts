@@ -1,22 +1,13 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+// src/index.ts - Minimal multi-user WebDAV with deterministic naming
 
 export interface Env {
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	bucket: R2Bucket;
-
-	// Variables defined in the "Environment Variables" section of the Wrangler CLI or dashboard
-	USERNAME: string;
-	PASSWORD: string;
+	// All secrets and buckets are accessed dynamically
+	// Secrets follow pattern: USER_<USERNAME>_PASSWORD
+	// Buckets follow pattern: <username>_webdav_sync
+	[key: string]: R2Bucket | string | undefined;
 }
 
+// All original helper functions remain exactly as they are
 async function* listAll(bucket: R2Bucket, prefix: string, isRecursive: boolean = false) {
 	let cursor: string | undefined = undefined;
 	do {
@@ -75,8 +66,16 @@ function fromR2Object(object: R2Object | null | undefined): DavProperties {
 	};
 }
 
+const API_PREFIX = '/webdav'; // Change this to your desired path, or set to '' for root
+
 function make_resource_path(request: Request): string {
-	let path = new URL(request.url).pathname.slice(1);
+	let path = new URL(request.url).pathname;
+	// Remove API prefix if it exists
+	if (API_PREFIX && path.startsWith(API_PREFIX)) {
+		path = path.slice(API_PREFIX.length);
+	}
+	// Remove leading slash
+	path = path.slice(1);
 	path = path.endsWith('/') ? path.slice(0, -1) : path;
 	return path;
 }
@@ -137,6 +136,8 @@ async function handle_get(request: Request, bucket: R2Bucket): Promise<Response>
 				headers: {
 					'Content-Type': object.httpMetadata?.contentType ?? 'application/octet-stream',
 					'Content-Length': contentLength.toString(),
+					'Last-Modified': object.uploaded.toUTCString(),
+					'ETag': object.etag,
 					...{ 'Content-Range': `bytes ${rangeOffset}-${rangeEnd}/${object.size}` },
 					...(object.httpMetadata?.contentDisposition
 						? {
@@ -203,12 +204,42 @@ async function handle_put(request: Request, bucket: R2Bucket): Promise<Response>
 		}
 	}
 
+	// Handle If-Unmodified-Since header for conflict detection
+	const ifUnmodifiedSince = request.headers.get('If-Unmodified-Since');
+	if (ifUnmodifiedSince) {
+		const existingObject = await bucket.head(resource_path);
+		if (existingObject) {
+			const ifUnmodifiedDate = new Date(ifUnmodifiedSince);
+			const objectDate = existingObject.uploaded;
+
+			// If the object was modified after the If-Unmodified-Since date, return 412
+			if (objectDate > ifUnmodifiedDate) {
+				return new Response('Precondition Failed', {
+					status: 412,
+					headers: {
+						'Last-Modified': objectDate.toUTCString()
+					}
+				});
+			}
+		}
+	}
+
 	let body = await request.arrayBuffer();
-	await bucket.put(resource_path, body, {
+	const uploadedObject = await bucket.put(resource_path, body, {
 		onlyIf: request.headers,
 		httpMetadata: request.headers,
 	});
-	return new Response('', { status: 201 });
+
+	// Get the newly created object to retrieve its metadata
+	const newObject = await bucket.head(resource_path);
+
+	return new Response('', {
+		status: 201,
+		headers: {
+			'Last-Modified': newObject ? newObject.uploaded.toUTCString() : new Date().toUTCString(),
+			'ETag': newObject ? newObject.etag : ''
+		}
+	});
 }
 
 async function handle_delete(request: Request, bucket: R2Bucket): Promise<Response> {
@@ -381,16 +412,16 @@ async function handle_propfind(request: Request, bucket: R2Bucket): Promise<Resp
 async function handle_proppatch(request: Request, bucket: R2Bucket): Promise<Response> {
 	const resource_path = make_resource_path(request);
 
-	// 检查资源是否存在
+	// Check if resource exists
 	let object = await bucket.head(resource_path);
 	if (object === null) {
 		return new Response('Not Found', { status: 404 });
 	}
 
-	// 读取请求体
+	// Read request body
 	const body = await request.text();
 
-	// 使用 HTMLRewriter 解析 XML
+	// Use HTMLRewriter to parse XML
 	const setProperties: { [key: string]: string } = {};
 	const removeProperties: string[] = [];
 	let currentAction: 'set' | 'remove' | null = null;
@@ -405,9 +436,9 @@ async function handle_proppatch(request: Request, bucket: R2Bucket): Promise<Res
 			} else if (tagName === 'remove') {
 				currentAction = 'remove';
 			} else if (tagName === 'prop') {
-				// 忽略 <prop> 标签
+				// Ignore <prop> tag
 			} else {
-				// 属性名称
+				// Property name
 				currentPropName = tagName;
 				currentPropValue = '';
 			}
@@ -430,13 +461,13 @@ async function handle_proppatch(request: Request, bucket: R2Bucket): Promise<Res
 		}
 	}
 
-	// 使用 HTMLRewriter 解析请求体
+	// Use HTMLRewriter to parse request body
 	await new HTMLRewriter().on('propertyupdate', new PropHandler()).transform(new Response(body)).arrayBuffer();
 
-	// 复制原有的自定义元数据
+	// Copy existing custom metadata
 	const customMetadata = object.customMetadata ? { ...object.customMetadata } : {};
 
-	// 更新元数据
+	// Update metadata
 	for (const propName in setProperties) {
 		customMetadata[propName] = setProperties[propName];
 	}
@@ -445,7 +476,7 @@ async function handle_proppatch(request: Request, bucket: R2Bucket): Promise<Res
 		delete customMetadata[propName];
 	}
 
-	// 更新对象的元数据
+	// Update object metadata
 	const src = await bucket.get(object.key);
 	if (src === null) {
 		return new Response('Not Found', { status: 404 });
@@ -456,7 +487,7 @@ async function handle_proppatch(request: Request, bucket: R2Bucket): Promise<Res
 		customMetadata: customMetadata,
 	});
 
-	// 构造响应
+	// Construct response
 	let responseXML = '<?xml version="1.0" encoding="utf-8"?>\n<multistatus xmlns="DAV:">\n';
 
 	for (const propName in setProperties) {
@@ -760,38 +791,91 @@ function is_authorized(authorization_header: string, username: string, password:
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		const { bucket } = env;
+		// Helper function to add CORS headers to any response
+		const addCorsHeaders = (response: Response): Response => {
+			response.headers.set('Access-Control-Allow-Origin', request.headers.get('Origin') ?? '*');
+			response.headers.set('Access-Control-Allow-Methods', SUPPORT_METHODS.join(', '));
+			response.headers.set(
+				'Access-Control-Allow-Headers',
+				['authorization', 'content-type', 'depth', 'overwrite', 'destination', 'range'].join(', '),
+			);
+			response.headers.set(
+				'Access-Control-Expose-Headers',
+				['content-type', 'content-length', 'dav', 'etag', 'last-modified', 'location', 'date', 'content-range'].join(', '),
+			);
+			response.headers.set('Access-Control-Allow-Credentials', 'false');
+			response.headers.set('Access-Control-Max-Age', '86400');
+			return response;
+		};
 
-		if (
-			request.method !== 'OPTIONS' &&
-			!is_authorized(request.headers.get('Authorization') ?? '', env.USERNAME, env.PASSWORD)
-		) {
-			return new Response('Unauthorized', {
+		// Check if request is for the WebDAV API path
+		const url = new URL(request.url);
+		if (API_PREFIX && !url.pathname.startsWith(API_PREFIX)) {
+			// If API_PREFIX is set and path doesn't match, return 404
+			return new Response('Not Found', { status: 404 });
+		}
+
+		// CORS preflight doesn't need auth
+		if (request.method === 'OPTIONS') {
+			const response = await dispatch_handler(request, {} as R2Bucket);
+			return addCorsHeaders(response);
+		}
+
+		// Parse Basic Auth
+		const authHeader = request.headers.get('Authorization');
+		if (!authHeader || !authHeader.startsWith('Basic ')) {
+			const response = new Response('Unauthorized', {
 				status: 401,
 				headers: {
 					'WWW-Authenticate': 'Basic realm="webdav"',
 				},
 			});
+			return addCorsHeaders(response);
 		}
 
+		const base64 = authHeader.slice(6);
+		const decoded = atob(base64);
+		const [username, password] = decoded.split(':');
+
+		// Construct deterministic names from username
+		const bucketBinding = `${username}_webdav_sync`;
+		const passwordSecret = `USER_${username.toUpperCase()}_PASSWORD`;
+
+		// Get the password from secrets
+		const storedPassword = env[passwordSecret] as string;
+		if (!storedPassword) {
+			// User doesn't exist
+			const response = new Response('Unauthorized', {
+				status: 401,
+				headers: {
+					'WWW-Authenticate': 'Basic realm="webdav"',
+				},
+			});
+			return addCorsHeaders(response);
+		}
+
+		// Timing-safe password comparison
+		if (!is_authorized(authHeader, username, storedPassword)) {
+			const response = new Response('Unauthorized', {
+				status: 401,
+				headers: {
+					'WWW-Authenticate': 'Basic realm="webdav"',
+				},
+			});
+			return addCorsHeaders(response);
+		}
+
+		// Get the user's R2 bucket
+		const bucket = env[bucketBinding] as R2Bucket;
+		if (!bucket) {
+			// Bucket binding doesn't exist - configuration error
+			console.error(`Bucket binding ${bucketBinding} not found for user ${username}`);
+			const response = new Response('Internal Server Error', { status: 500 });
+			return addCorsHeaders(response);
+		}
+
+		// Process WebDAV request with user's bucket
 		let response: Response = await dispatch_handler(request, bucket);
-
-		// Set CORS headers
-		response.headers.set('Access-Control-Allow-Origin', request.headers.get('Origin') ?? '*');
-		response.headers.set('Access-Control-Allow-Methods', SUPPORT_METHODS.join(', '));
-		response.headers.set(
-			'Access-Control-Allow-Headers',
-			['authorization', 'content-type', 'depth', 'overwrite', 'destination', 'range'].join(', '),
-		);
-		response.headers.set(
-			'Access-Control-Expose-Headers',
-			['content-type', 'content-length', 'dav', 'etag', 'last-modified', 'location', 'date', 'content-range'].join(
-				', ',
-			),
-		);
-		response.headers.set('Access-Control-Allow-Credentials', 'false');
-		response.headers.set('Access-Control-Max-Age', '86400');
-
-		return response;
+		return addCorsHeaders(response);
 	},
 };

@@ -4,13 +4,20 @@ name = "r2-webdav"
 
 compatibility_flags = ["nodejs_compat"]
 
-# Bind an R2 Bucket. Use R2 to store arbitrarily large blobs of data, such as files.
-# Docs: https://developers.cloudflare.com/r2/api/workers/workers-api-usage/
+# Custom domain configuration
+[[routes]]
+pattern = "sync.speakez.tech/*"
+zone_name = "speakez.tech"
+
+# Add R2 bucket bindings for each user
+# Binding name must match: {username}_webdav_sync
 [[r2_buckets]]
-binding = "bucket" # <~ valid JavaScript variable name
-bucket_name = "webdav"
+binding = "testuser_webdav_sync"
+bucket_name = "testuser-webdav-bucket"
+
 
 # Docs: https://developers.cloudflare.com/workers/observability/logs/workers-logs/#enable-workers-logs
 [observability]
 enabled = true
 head_sampling_rate = 1
+
