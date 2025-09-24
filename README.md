@@ -2,7 +2,7 @@
 
 A production-ready, multi-user WebDAV server built on Cloudflare Workers and R2 storage, optimized for sync services like Super-Productivity.
 
-> **Fork Enhancement**: This is an enhanced fork of [abersheeran/r2-webdav](https://github.com/abersheeran/r2-webdav) with multi-user support, sync client compatibility, and enterprise features.
+> **Fork Enhancement**: This is an enhanced fork of [abersheeran/r2-webdav](https://github.com/abersheeran/r2-webdav) with multi-user support and client sync compatibility.
 
 ## 🚀 Key Improvements Over Original
 
