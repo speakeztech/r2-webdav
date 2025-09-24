@@ -1,0 +1,23 @@
+compatibility_date = "2023-10-16"
+main = "src/index.ts"
+name = "r2-webdav"
+
+compatibility_flags = ["nodejs_compat"]
+
+# Custom domain configuration (optional)
+# Uncomment and modify for your domain
+# [[routes]]
+# pattern = "sync.yourdomain.com/*"
+# zone_name = "yourdomain.com"
+
+# R2 bucket bindings for users
+# These will be added automatically by the add-user.ps1 script
+# Example format:
+# [[r2_buckets]]
+# binding = "username_webdav_sync"
+# bucket_name = "username-webdav-bucket"
+
+# Docs: https://developers.cloudflare.com/workers/observability/logs/workers-logs/#enable-workers-logs
+[observability]
+enabled = true
+head_sampling_rate = 1
