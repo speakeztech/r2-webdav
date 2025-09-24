@@ -259,11 +259,12 @@ Please submit PRs with:
 
 MIT License - See [LICENSE](LICENSE) file
 
-## 🙏 Acknowledgment & Summary
+## 🙏 Acknowledgments & Summary
 
+- Super-Productivity, [the app](https://super-productivity.com/)!
 - Original [r2-webdav](https://github.com/abersheeran/r2-webdav) by [@abersheeran](https://github.com/abersheeran)
-- Enhanced for production use with multi-user support
-- Community feedback and contributions
+- Enhanced for org-level use with multi-user support
+- Community feedback and contributions welcome
 
 ## 📞 Support
 
