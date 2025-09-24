@@ -60,7 +60,7 @@ A production-ready, multi-user WebDAV server built on Cloudflare Workers and R2 
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/r2-webdav.git
+git clone https://github.com/speakeztech/r2-webdav.git
 cd r2-webdav
 npm install
 ```
@@ -83,7 +83,7 @@ The script automatically:
 
 4. **Access your WebDAV server**
 ```
-https://your-worker.workers.dev/webdav
+https://[clouflare-worker-endpoint]/webdav
 ```
 
 ## 🌐 Custom Domain Setup
@@ -119,11 +119,7 @@ Your WebDAV will be available at: `https://sync.yourdomain.com/webdav`
 .\scripts\add-user.ps1 -Username "charlie" -Password "pass456" -SkipDeploy
 ```
 
-### User Storage Structure
-Each user automatically gets:
-- **R2 Bucket**: `{username}-webdav-bucket`
-- **Password Secret**: `USER_{USERNAME}_PASSWORD`
-- **Binding Name**: `{username}_webdav_sync`
+Continuing to add users means that the wrangler.toml is updated which triggers a push to both create the user/bucket and the binding that routes the logged-in user to their bucket.
 
 ### Bulk User Management
 ```powershell
@@ -135,11 +131,7 @@ Each user automatically gets:
 
 ## 🔧 Configuration
 
-### Path Prefix
-Edit `src/index.ts` to change the WebDAV path:
-```typescript
-const API_PREFIX = '/webdav'; // Change to '' for root path
-```
+![sync config](sync_config.png)
 
 ### Sync Client Setup
 
@@ -267,20 +259,13 @@ Please submit PRs with:
 
 MIT License - See [LICENSE](LICENSE) file
 
-## 🙏 Acknowledgments
+## 🙏 Acknowledgment & Summary
 
 - Original [r2-webdav](https://github.com/abersheeran/r2-webdav) by [@abersheeran](https://github.com/abersheeran)
 - Enhanced for production use with multi-user support
-- Super-Productivity compatibility by [@yourusername](https://github.com/yourusername)
 - Community feedback and contributions
 
 ## 📞 Support
 
 For issues and questions:
-- 🐛 [GitHub Issues](https://github.com/yourusername/r2-webdav/issues)
-- 💬 [Discussions](https://github.com/yourusername/r2-webdav/discussions)
-- 📧 Email: support@yourdomain.com
-
----
-
-**Production Ready** | **Multi-User** | **Super-Productivity Compatible** | **Edge Powered**
+- 🐛 [GitHub Issues](https://github.com/speakeztech/r2-webdav/issues)
